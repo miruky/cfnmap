@@ -23,6 +23,7 @@
 - 入力のたびに右側の構成図が更新されます。実線は参照(`Ref` / `Fn::GetAtt` / `Fn::Sub`)、破線は `DependsOn` です
 - ノードをクリック(またはEnter)すると、リソースタイプ・参照元・参照先・Propertiesを表示します
 - 「SVGをダウンロード」「SVGをコピー」で、単体で表示できるSVGファイルとして書き出せます
+- 「共有リンク」で現在のテンプレートをURLに畳んで渡せます。配色はOS設定に追従し、ヘッダーのトグルでライト/ダーク/自動を切り替えられます
 
 ## アーキテクチャ
 
@@ -36,8 +37,8 @@
 | :------- | :--------------------------------- |
 | 言語     | TypeScript 5(strict)               |
 | YAML解析 | yaml(短縮タグはカスタムタグで対応) |
-| ビルド   | Vite                               |
-| テスト   | Vitest(34テスト)                   |
+| ビルド   | Vite 8                             |
+| テスト   | Vitest 4(41テスト)                 |
 | リンタ   | ESLint + Prettier                  |
 | CI / CD  | GitHub Actions                     |
 | 配信     | GitHub Pages                       |
@@ -56,6 +57,8 @@
 - `src/lib/categories.ts` — サービス分類と配色・グリフ
 - `src/lib/diagram.ts` — スタンドアロンSVGの組み立て
 - `src/lib/examples.ts` — サンプルテンプレート
+- `src/lib/share.ts` — テンプレートのURLフラグメント相互変換
+- `src/lib/theme.ts` — ライト/ダーク/システムの解決
 - `src/app.ts` — エディタ・プレビュー・詳細パネルの配線
 - `docs/architecture.svg` — アーキテクチャ図
 
