@@ -7,8 +7,28 @@
       name="description"
       content="CloudFormation / CDKテンプレートからSVG構成図をブラウザ内で自動生成する"
     />
+    <meta name="theme-color" content="#f4f3ee" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#131619" media="(prefers-color-scheme: dark)" />
+    <meta property="og:title" content="cfnmap — CloudFormation構成図ジェネレータ" />
+    <meta
+      property="og:description"
+      content="CloudFormation / CDKテンプレートの参照関係をSVG構成図に起こす。"
+    />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <title>cfnmap — CloudFormation構成図ジェネレータ</title>
+    <script>
+      // 描画前にテーマを確定してチラつき(FOUC)を防ぐ
+      (function () {
+        try {
+          var stored = localStorage.getItem('cfnmap:theme');
+          var dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          document.documentElement.dataset.theme =
+            stored === 'light' || stored === 'dark' ? stored : dark ? 'dark' : 'light';
+        } catch (e) {
+          /* localStorageが使えない環境では既定の配色にフォールバック */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>
