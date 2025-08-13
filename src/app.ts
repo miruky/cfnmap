@@ -5,8 +5,26 @@ import { parseTemplate, type Template } from './lib/cfn';
 import { buildDiagram, type Diagram } from './lib/diagram';
 import { categoryOf } from './lib/categories';
 import { EXAMPLES } from './lib/examples';
+import { decodeSource, encodeSource } from './lib/share';
+import {
+  choiceLabel,
+  isThemeChoice,
+  nextChoice,
+  resolveTheme,
+  type ThemeChoice,
+} from './lib/theme';
 
 const STORAGE_KEY = 'cfnmap:v1';
+const THEME_KEY = 'cfnmap:theme';
+const HASH_PREFIX = '#t=';
+
+const THEME_ICONS: Record<ThemeChoice, string> = {
+  system:
+    '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4" stroke-linecap="round"/></svg>',
+  light:
+    '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.2 5.2l1.7 1.7M17.1 17.1l1.7 1.7M18.8 5.2l-1.7 1.7M6.9 17.1l-1.7 1.7" stroke-linecap="round"/></svg>',
+  dark: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 13.5A7.5 7.5 0 1 1 10.5 4a6 6 0 0 0 9.5 9.5Z" stroke-linejoin="round"/></svg>',
+};
 
 function esc(s: string): string {
   return s
@@ -22,9 +40,19 @@ const BRAND_MARK =
 export function mountApp(root: HTMLElement): void {
   root.innerHTML = `
   <header class="site-header">
-    <div class="brand">${BRAND_MARK}<span class="brand-name">cfnmap</span></div>
-    <p class="tagline">CloudFormation / CDK(synth出力)のテンプレートを貼ると、リソースの参照関係をSVG構成図にする</p>
+    <div class="brand">
+      ${BRAND_MARK}
+      <div class="brand-text">
+        <span class="kicker">CloudFormation diagram</span>
+        <span class="brand-name">cfnmap</span>
+      </div>
+    </div>
+    <button type="button" id="theme-toggle" class="theme-toggle">
+      <span class="theme-toggle-icon" id="theme-icon"></span>
+      <span id="theme-label"></span>
+    </button>
   </header>
+  <p class="tagline">CloudFormation や CDK の synth 出力テンプレートを貼り付けると、Ref・GetAtt・Sub・DependsOn からリソースの参照関係を読み取り、依存の深さで段組みしたSVG構成図に起こします。解析も描画もブラウザ内で完結します。</p>
   <main>
     <section class="pane editor-pane" aria-labelledby="editor-heading">
       <div class="pane-head">
@@ -49,6 +77,7 @@ export function mountApp(root: HTMLElement): void {
       <div class="pane-head">
         <h2 id="diagram-heading">構成図</h2>
         <div class="toolbar">
+          <button type="button" id="share" class="ghost">共有リンク</button>
           <button type="button" id="copy-svg" class="ghost">SVGをコピー</button>
           <button type="button" id="download-svg" class="ghost">SVGをダウンロード</button>
         </div>
@@ -71,8 +100,41 @@ export function mountApp(root: HTMLElement): void {
   const cycleEl = root.querySelector('#cycle-note') as HTMLParagraphElement;
   const copyEl = root.querySelector('#copy-svg') as HTMLButtonElement;
   const downloadEl = root.querySelector('#download-svg') as HTMLButtonElement;
+  const shareEl = root.querySelector('#share') as HTMLButtonElement;
+  const themeToggleEl = root.querySelector('#theme-toggle') as HTMLButtonElement;
+  const themeIconEl = root.querySelector('#theme-icon') as HTMLSpanElement;
+  const themeLabelEl = root.querySelector('#theme-label') as HTMLSpanElement;
 
   let current: { template: Template; diagram: Diagram } | undefined;
+
+  let themeChoice: ThemeChoice = (() => {
+    try {
+      const stored = localStorage.getItem(THEME_KEY);
+      return isThemeChoice(stored) ? stored : 'system';
+    } catch {
+      return 'system';
+    }
+  })();
+
+  function applyTheme(): void {
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    document.documentElement.dataset.theme = resolveTheme(themeChoice, prefersDark);
+    themeIconEl.innerHTML = THEME_ICONS[themeChoice];
+    themeLabelEl.textContent =
+      themeChoice === 'system' ? '自動' : themeChoice === 'light' ? 'ライト' : 'ダーク';
+    themeToggleEl.setAttribute('aria-label', `${choiceLabel(themeChoice)}(クリックで切替)`);
+    themeToggleEl.setAttribute('title', choiceLabel(themeChoice));
+  }
+
+  function flash(button: HTMLButtonElement, done: string, ok = true): void {
+    const original = button.textContent ?? '';
+    button.textContent = done;
+    button.classList.toggle('is-done', ok);
+    window.setTimeout(() => {
+      button.textContent = original;
+      button.classList.remove('is-done');
+    }, 1500);
+  }
 
   function setStat(id: string, value: number): void {
     (root.querySelector(`#stat-${id}`) as HTMLElement).textContent = String(value);
@@ -162,13 +224,33 @@ export function mountApp(root: HTMLElement): void {
 
   copyEl.addEventListener('click', () => {
     if (!current) return;
-    navigator.clipboard.writeText(current.diagram.svg).then(() => {
-      copyEl.textContent = 'コピーした';
-      setTimeout(() => {
-        copyEl.textContent = 'SVGをコピー';
-      }, 1500);
-    });
+    navigator.clipboard.writeText(current.diagram.svg).then(
+      () => flash(copyEl, 'コピーした'),
+      () => flash(copyEl, 'コピーできない', false),
+    );
   });
+
+  shareEl.addEventListener('click', () => {
+    const encoded = encodeSource(sourceEl.value);
+    history.replaceState(null, '', `${location.pathname}${HASH_PREFIX}${encoded}`);
+    navigator.clipboard
+      .writeText(`${location.origin}${location.pathname}${HASH_PREFIX}${encoded}`)
+      .then(
+        () => flash(shareEl, 'リンクをコピー'),
+        () => flash(shareEl, 'コピーできない', false),
+      );
+  });
+
+  themeToggleEl.addEventListener('click', () => {
+    themeChoice = nextChoice(themeChoice);
+    try {
+      localStorage.setItem(THEME_KEY, themeChoice);
+    } catch {
+      // 保存できない環境でも切り替え自体は機能する
+    }
+    applyTheme();
+  });
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme());
 
   downloadEl.addEventListener('click', () => {
     if (!current) return;
@@ -193,13 +275,20 @@ export function mountApp(root: HTMLElement): void {
     run();
   });
 
+  applyTheme();
+
+  const shared = location.hash.startsWith(HASH_PREFIX)
+    ? decodeSource(location.hash.slice(HASH_PREFIX.length))
+    : null;
   let saved: string | null = null;
   try {
     saved = localStorage.getItem(STORAGE_KEY);
   } catch {
     saved = null;
   }
-  if (saved !== null && saved.trim() !== '') {
+  if (shared !== null && shared.trim() !== '') {
+    sourceEl.value = shared;
+  } else if (saved !== null && saved.trim() !== '') {
     sourceEl.value = saved;
   } else {
     const first = EXAMPLES[0];
